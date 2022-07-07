@@ -1,0 +1,554 @@
+---
+title: "Trab 01 - Análise Multivariada"
+author: "Fernando Pires dos Santos"
+subtitle: 'Análise da Poluição do Ar nos EUA utilizando as ferramentas: PCA, TSNE
+  e MDS'
+output:
+  html_notebook:
+    theme: flatly
+    highlight: textmate
+    code_folding: hide
+    toc: yes
+    number_sections: yes
+    toc_depth: 3
+    toc_float:
+      collapsed: true
+      smooth_scroll: false
+      number_sections: yes
+      
+---
+
+ 
+
+```{r, echo=FALSE, warning=FALSE}
+options(scipen=999)
+options(warn = 0)
+library(knitr)
+library(rmdformats)
+library(ggplot2)
+library(dplyr)
+library(magrittr)
+library(gridExtra)
+library(corrplot)
+library(usmap)
+library(FactoMineR)
+library(Rtsne)
+library(ggpubr)
+```
+
+# Introdução
+
+O dataset a seguir nos informa a poluição do ar em diversas cidades dos EUA. Além disso nos da outras variáveis climáticas e da ecologia humuna que utilizaremos para tentar responder a seguinte pergunta: Quais ou como os aspectos do clima e da ecologia humana, medidos pelas outras seis variáveis, influenciam a poluição?
+
+PS: Além das variáveis originais incrementaremos nosso dataset para ver se a localização geográfica influencia a poluição.
+
+Antes de iniciarmos um pequeno resumo de nosso dataset.
+
+## Resumo dados
+O dataset possui dados de poluição do ar de 41 cidades dos EUA e possui informação sobre 7 variáveis listadas a seguir.
+
+>**SO2:** *Teor de SO2 (dióxido de enxofre) do ar em microgramas por metro cúbico.*<br>
+>**temp:** *temperatura média anual em Fahrenheit.*<br>
+>**manu:** *número de empresas manufatureiras que empregam 20 ou mais trabalhadores.*<br>
+>**popul:** *tamanho da população (censo de 1970); em milhares.*<br>
+>**wind:** *velocidade média anual do vento em milhas por hora.*<br>
+>**precip:** *precipitação média anual em polegadas.*<br>
+>**predays:** *número médio de dias com precipitação por ano.*
+
+
+Ao longo do relatório poderemos nos referir a cada variável por seu nome ou sua descrição.
+
+
+# Dados
+## Tabela com os dados
+```{r}
+dt = read.csv2("aula_02/usairpollution.csv", sep =';', header=T)
+dt = rename(dt,city = X,)
+head(dt,10)
+```
+
+## Estrutura dos dados
+
+```{r}
+str(dt)
+```
+
+
+```{r, eval = FALSE}
+# Conferindo se há valores faltantes no dataset
+table(is.na(dt))
+```
+# Analise Descritiva
+
+## Boxplot das variáveis {.tabset}
+
+Com os boxplots conseguimos observar comportamentos das variáveis dentro do nosso dataset, como a variabilidade e outliers. 
+
+### SO2 / Temp
+```{r}
+
+plot1 = ggplot(dt,aes(y=SO2)) + 
+    geom_boxplot() +
+    theme(legend.position="none") +
+    ggtitle("Poluição (SO2)") + 
+    theme_classic() +
+    coord_flip() + 
+    theme(axis.text.y = element_blank())
+
+plot2 = ggplot(dt,aes(y=temp)) + 
+    geom_boxplot() +
+    theme(legend.position="none") +
+    ggtitle("Temperatura Media Anual (F)") + 
+    theme_classic() +
+    coord_flip() + 
+    theme(axis.text.y = element_blank())
+
+plot3 = ggplot(dt,aes(y=manu)) + 
+    geom_boxplot() +
+    theme(legend.position="none") +
+    ggtitle("Número de Empresas Manufatureiras") + 
+    theme_classic() +
+    coord_flip() + 
+    theme(axis.text.y = element_blank())
+
+plot4 = ggplot(dt,aes(y=popul)) + 
+    geom_boxplot() +
+    theme(legend.position="none") +
+    ggtitle("População em milhares (Censo 1970)") + 
+    theme_classic() +
+    coord_flip() + 
+    theme(axis.text.y = element_blank())
+
+plot5 = ggplot(dt,aes(y=wind)) + 
+    geom_boxplot() +
+    theme(legend.position="none") +
+    ggtitle("Velocidade Média Anual do vento (mi/hr)") + 
+    theme_classic() +
+    coord_flip() + 
+    theme(axis.text.y = element_blank())
+
+plot6 = ggplot(dt,aes(y=precip)) + 
+    geom_boxplot() +
+    theme(legend.position="none") +
+    ggtitle("Precipitação média anual (polegadas)") + 
+    theme_classic() +
+    coord_flip() + 
+    theme(axis.text.y = element_blank())
+
+plot7 = ggplot(dt,aes(y=predays)) + 
+    geom_boxplot() +
+    theme(legend.position="none") +
+    ggtitle("Número médio de dias com precipitação por ano") + 
+    theme_classic() +
+    coord_flip() + 
+    theme(axis.text.y = element_blank())
+
+
+grid.arrange(plot1,plot2,ncol=2)
+
+```
+### Manu / Popul
+
+```{r}
+grid.arrange(plot3,plot4,ncol=2)
+```
+
+
+### Wind / Precip
+```{r}
+grid.arrange(plot5,plot6,ncol=2)
+```
+### Predays
+```{r}
+grid.arrange(plot7)
+```
+
+
+## Correlação entre as variáveis
+
+```{r}
+corrplot(cor(dt[,-c(1)]),method = "color",
+                    type="upper",
+                    diag=FALSE, 
+                    addCoef.col="black",
+                    tl.col="black")
+```
+Podemos observar uma forte correlação positiva entre o tamanho da população e o número de empresas manufatureiras. Normalmente quando temos duas variáveis com correlação muito alta, isso atrapalha nosso modelo, pois ambas tendem a explicar a mesma coisa. Porém para os métodos que utilizaremos não precisaremos nos preocupar com isso. 
+
+## Testando a normalidade das variáveis {.tabset}
+
+Utilizando o teste de hipóteses Shapiro-Wilk percebemos que a um nível de significância de 0.05 as variáveis Wind e Predays possuem Distribuição Normal, ou melhor, não há evidências para dizer que não possuem Distribuição Normal.
+
+### SO2
+```{r}
+shapiro.test(dt$SO2)
+```
+### Temp
+```{r}
+shapiro.test(dt$temp)
+```
+### Manu
+```{r}
+shapiro.test(dt$manu)
+```
+### Popul
+```{r}
+shapiro.test(dt$popul)
+```
+### Wind
+```{r}
+shapiro.test(dt$wind)
+```
+### Precip
+```{r}
+shapiro.test(dt$precip)
+```
+### Predays
+```{r}
+shapiro.test(dt$predays)
+```
+
+## Dispersão 2 a 2 (Emissão de $S02$ como variável resposta)
+
+
+```{r}
+ggplot(dt,aes(x=temp, y=SO2)) + geom_point(colour='red') + labs(x="Temperatura média anual (F)", y="Emissão SO2", title="SO2 x Temp(F)") + scale_x_continuous(breaks=seq(-100, 100, 10))
+
+```
+
+```{r}
+ggplot(dt,aes(x=manu, y=SO2)) + geom_point(colour='red') + labs(x="Empresas Manufatureiras com 20+ trabalhadores", y="S02", title="SO2 x Manufatureiras(20+ trabalhadores)")
+
+```
+
+```{r}
+ggplot(dt,aes(x=popul, y=SO2)) + geom_point(colour='red') + labs(x="Tamanho população (censo 1970)", y="Emissão SO2", title="SO2 x População (censo 1970)")
+
+```
+
+```{r}
+ggplot(dt,aes(x=wind, y=SO2)) + geom_point(colour='red') + labs(x="Velocidade Média anual do vento (milhas/hora)", y="Emissão SO2", title="SO2 x Vento (mi/hr)") + scale_x_continuous(breaks=seq(0, 100, 1))
+
+```
+
+```{r}
+ggplot(dt,aes(x=precip, y=SO2)) + geom_point(colour='red') + labs(x="Precipitação Média anual (polegadas)", y="Emissão SO2", title="SO2 x Precip (pol)") + scale_x_continuous(breaks=seq(0, 100, 10))
+
+```
+
+```{r}
+ggplot(dt,aes(x=predays, y=SO2)) + geom_point(colour='red') + labs(x="Número médio de dias com precipitação por ano", y="Emissão SO2", title="SO2 x Predays")
+```
+Aparentamente não há nenhuma correlação linear entre S02 e as demais variáveis. 
+
+Vejamos a seguir o plot de todas as combinações (2 a 2). 
+Obs: Esperamos observar forte relação linear positiva de população x manufatureiras. 
+
+```{r}
+plot(dt[,-c(1)],lower.panel=NULL,main="Dispersão das variáveis")
+```
+
+# Adicionando variáveis espaciais
+
+Para incrementar nosso dataset, vamos atrás de dados geográficos e procurar alguma relação da localização com o nível de poluição das cidades.
+
+
+```{r}
+us.cities <- read.csv2("aula_02/uscities.csv", sep =',', header=T)
+
+head(us.cities)
+```
+
+
+```{r}
+# Confirmando que todas as cidades do nosso dt estão em us.cities. 
+corresp_city = sapply(dt$city, function(z) {
+    sum(us.cities$city %in% z)
+})
+corresp_city[corresp_city == 0]
+```
+```{r}
+# Excluindo cidades que não nos interessam
+us_dt = us.cities[us.cities$city %in% dt$city, ]
+```
+
+Ao tentar juntar os datasets podemos observar que existem diversas cidades homonimas (com mesmo nome), por exemplo, existem 34 cidades denominadas Albany. Escolheremos arbitrariamente (com o fim de conseguirmos concluir nosso trabalho) as cidades com maior população.
+
+
+```{r}
+#Criando ID
+us_dt$id = 1:nrow(us_dt)
+
+#Criando a função para identificar o ID com maior população
+get_max = function(z) {
+    s = us_dt[us_dt$city %in% z, ]
+    s$id[which.max(s$pop)]
+}
+
+# aplicando a função as cidades em dt
+id_max_pop = apply(data.frame(dt$city), 1, get_max)
+
+# selecionando os registros (linhas) com as correspondencias
+us_dt = us_dt[id_max_pop, ]
+
+# Selecionando apenas as variáveis que nos interessam
+
+us_dt = us_dt[c("city","lat","lng")]
+
+# Transformando lat e lng em números
+
+us_dt$lat <- as.numeric(us_dt$lat)
+us_dt$lng <- as.numeric(us_dt$lng)
+
+```
+
+Com os dados tratados, podemos unir nossos nossos datasets.
+
+## Tabela com dados geográficos
+
+```{r}
+dt_cities <- left_join(dt, us_dt)
+
+dt_cities
+```
+
+## Mapa 
+
+```{r}
+library(ggrepel)
+
+ggplot(dt_cities, aes(lng, lat, group, fill=SO2)) + borders("state") + coord_quickmap() + geom_point() + geom_label_repel(aes(label = city), size = 2)
+
+```
+Existe uma concentração de cidade mais poluidas na região Nordeste e aparentemente o grau de poluição vai aumentando quando vamos nessa direção.Temos uma região atípica que é em Chigado, a cidade mais poluída do nosso dataset.
+
+Plotando novamente o mapa, agora com a visualização do grau de poluíção.
+
+
+```{r}
+ggplot(dt_cities, aes(lng, lat, group, fill=SO2)) + borders("state") + coord_quickmap() + geom_point() + geom_label_repel(aes(label = SO2), size = 2)
+```
+
+# PCA
+
+Para aplicarmos o PCA precisamos primeiro retirar a variável SO2 do dataset, removi também os atributos geográficos adicionados ao dataset original. Em seguida fazeremos a Análise de Componentes Principais utilizando a função prcomp (que utiliza o SRD - soma da diferença dos ranks).
+
+```{r}
+dt_cities_pca <- dt_cities[,-c(2,9,10)]
+rownames(dt_cities_pca) <- dt_cities_pca$city
+dt_cities_pca <- dt_cities_pca[,-c(1)]
+```
+
+
+```{r}
+# Padronizamos as variáveis, afinal já foi possível perceber que estão em escalas bem diferentes, o que prejudicaria nossa análise.
+
+pr.out=prcomp(dt_cities_pca, scale=TRUE, center=TRUE)
+```
+
+
+
+## Vetores de carga ("Betas" da combinação linear de cada componente)
+
+```{r}
+pr.out$rotation
+```
+<mark> Como analisar a tabela acima: </mark>
+
+<mark> PC1 $\cong$ 0.32 $\times$ temp $-$ 0.61 $\times$ manu $-$ 0.57 $\times$ popul $-$ 0.35 $\times$ wind $+$ 0.04 $\times$ precip $-$ 0.23 $\times$ predays </mark>
+
+
+```{r, eval = FALSE}
+# Apenas para fins de conferência
+eigen(cor(dt_cities_pca))$vectors
+```
+## Descrição de cada componente
+
+```{r}
+summary(pr.out)
+```
+
+Podemos observar que utilizando apenas as componentes 1, 2 e 3 somos capazes de explicar 84,85% da variância de nossos dados. E apenas com 4 componentes explicamos 97.52% da variância dos dados!
+Por tanto não parece razoável utilizarmos PC5 e PC6.
+
+Para melhor visualização:
+
+```{r}
+library(factoextra)
+  fviz_eig(pr.out, addlabels = TRUE, ylim=c(0,45)) + labs(title ="Scree Plot", x = "Componentes Principais", y = "Variância explicada em %")
+
+```
+
+Componentes para as 5 primeiras cidades.
+
+```{r}
+head(pr.out$x)
+```
+## Gráfico das Variáveis
+```{r}
+fviz_pca_var(pr.out, repel = TRUE, 
+col.var = "cos2",
+gradient.cols = c("#E5E5E5", "blue", "red"),
+select.ind = list(cos2 = 15)
+) + theme_minimal() + labs(title ="PCA - Variáveis", x = "PC1", y = "PC2")
+```
+O gráfico acima mostra a relação entre todas as variáveis. Porém, perceba que as variáveis "temp" e "wind" não são bem representadas por PC1 e PC2. Vejamos abaixo um gráfico que mostra o quanto cada uma das variáveis contribuiu (em %) para as duas primeiras componentes.
+
+```{r}
+fviz_contrib(pr.out, choice = "var", axes = 1:2) + labs(title ="Contribuição das Variáveis para PC1 e PC2", y = "Contribuição em %")
+```
+
+## Gráfico dos Indivíduos
+```{r, warning=FALSE}
+fviz_pca_ind(pr.out, repel = TRUE,
+pointsize = "cos2",
+pointshape = 21,
+fill = "yellow",
+select.ind = list(cos2 = 15)
+) + theme_minimal() + labs(title ="PCA - Indivíduos", x = "PC1", y = "PC2") + xlim(-7, 7) + ylim (-4, 4)
+```
+O gráfico acima representa bem as diferenças entre os indivíduo, quanto mais distantes mais diferentes são entre si. O gráfico mostra apenas as 15 cidades mais bem representadas por PC1 e PC2. 
+Juntemos então tudo em apenas um gráfico para melhor visualização do porquê essas cidades são tão diferentes (ou parecidas).  
+
+## Gráfico Indivíduos + Variáveis (Biplot)
+```{r, warning=FALSE}
+fviz_pca_biplot(pr.out, repel = TRUE, 
+col.var = "#df6e2e",
+col.ind = "contrib",
+pointsize = 1.5,
+select.ind = list(contrib = 15)
+) + theme_minimal() + labs(title ="PCA - Biplot", x = "PC1", y = "PC2") + xlim(-7, 7) + ylim (-4, 4)
+```
+Em uma rápida análise podemos dizer, por exemplo, que a distância entre Chigado e Miami é explicada principalmente por sua diferença em termos de população e número de empresas manufatureiras. Podemos dizer também que chove muito mais em Miami. Vale a pena ressaltar que estamos utilizando apenas as componentes 1 e 2, e que contribuição de Chigado se destaca para formação dessas componentes.
+ 
+
+## Cos2 - PC1, PC2, PC3
+
+Já percebemos que tanto a variável vento quanto temperatura não foram bem representadas em PC1 e PC2. O que aconteceria se adicionassemos PC3 a nossa análise?
+
+```{r}
+fviz_cos2(pr.out, choice = "var", axes = 1:3) + labs(title ="Qualidade de representação das variáveis em PC1, PC2 e PC3", y = "Cos2")
+```
+Agora temos temperatura bem representada. Lembrando que ao utilizarmos PC1+PC2+PC3 explicamos aproximadamente 84,85% dos dados. O ideal então seria incluírmos PC4 em nossa análise. Será que conseguiriamos então uma boa representação para o vento? 
+
+Vejamos então a contribuição de cada uma de nossas variáveis para cada uma das componentes.
+Vale lembrar que as variáveis que mais contribuem para as primeiras componentes são as variáveis mais importantes para explicar a variabilidade dos dados, por tanto não há necessariamete problema em deixar algumas variáveis com pouca representação, se fosse o caso. 
+
+## Contribuição das variáveis para cada componente
+
+```{r}
+var=get_pca_var(pr.out)
+colnames(var$contrib) = c("PC1","PC2","PC3","PC4","PC5","PC6")
+reds=COL1(sequential = "Reds")
+corrplot(var$contrib, is.corr=FALSE, col = reds)
+```
+Podemos então concluir que ao incluirmos PC4 em nossa análise teremos uma boa representação de todas as novas variáveis, além de conseguirmos explicar aproximadamente 97.52% da variância do nosso dataset!
+
+# MDS
+
+```{r, warning=FALSE}
+mds_nonstand <- dt_cities_pca %>% dist() %>% cmdscale(k=6,eig=TRUE)
+mds_ns <- as.data.frame(mds_nonstand$points)
+mds_ns$city <- rownames(mds_ns)
+
+ggplot(mds_ns, aes(x=V1, y=V2)) + geom_point(size=1) + labs(x="Coordenada 1",y="Coordenada 2") + geom_label_repel(mapping = aes(label = city))
+```
+A distancia entre as variáveis representa o quão diferentes elas são entre si. Como podemos observar Philadelfia e Chigado se destacam. É possível que apenas uma ou outra variável tenha criado essa distância, por conta da escala. Portanto, padronizaremos todas as variáveis para uma escala [0,1] e repetiremos nossa análise, fazendo então com que todas as variáveis tenham o mesmo peso.
+
+```{r, warning=FALSE}
+dt_cities_stand = apply(dt_cities_pca, FUN = function(x) {(x-min(x)) / (max(x)-min(x))}, MARGIN = 2)
+mds_stand <- dt_cities_stand %>% dist() %>% cmdscale(k=6,eig=TRUE)
+mds_s=as.data.frame(mds_stand$points)
+mds_s$city <- rownames(mds_s)
+
+ggplot(mds_s, aes(x=V1, y=V2)) + geom_point(size=1) + labs(x="Coordenada 1",y="Coordenada 2") + geom_label_repel(mapping = aes(label = city))
+```
+Podemos observar mudança significativa nas distancias entre as cidades. Chicago parece ainda se destacar, mas agora com destaque para Phoenix. Percebam também que Philadelphia não se destaca mais das demais cidades.
+
+
+## Criando Clusters (K-means)
+
+Utilizaremos uma técnica de clusterização para tentarmos separar as cidades em 3 grupos. A técnica utilizada será o K-means.
+
+### Dados não padronizados
+
+```{r, warning=FALSE}
+clust_ns <- kmeans(mds_ns[,-c(7)], 3)$cluster %>% as.factor()
+mds_ns <- mds_ns %>% mutate(groups = clust_ns)
+
+ggplot(mds_ns, aes(x=V1, y=V2, color = groups)) + geom_point(size=1) + labs(x="Coordenada 1",y="Coordenada 2") + geom_label_repel(mapping = aes(label = city))
+```
+Podemos observar que chigado faz parte de um grupo só seu, vamos ver se a análise com os dados padronizados mudaria essa perspectiva. 
+
+### Dados Padronizados
+
+```{r, warning=FALSE}
+clust_s <- kmeans(mds_s[,-c(7)], 3)$cluster %>% as.factor()
+mds_s <- mds_s %>% mutate(groups = clust_s)
+
+ggscatter(mds_s, x = "V1", xlab="Coordenada 1", y = "V2",ylab="Coordenada 2", 
+          label = rownames(dt_cities_stand),
+          title = "MDS - Dados Padronizados organizados por clusters",
+          color = "groups",
+          palette = "jco",
+          size = 1, 
+          ellipse = TRUE,
+          ellipse.type = "convex",
+          repel = TRUE)
+
+```
+A análise com os dados padronizados me parece mais razóavel e portanto daqui para frente utilizaremos apenas eles. 
+
+# TSNE
+
+```{r}
+tsne_fit <- dt_cities_stand %>% Rtsne(perplexity=13)
+tsne_df <- tsne_fit$Y %>% as.data.frame() %>% rename(Coord1="V1", Coord2="V2")
+tsne_df$city <- rownames(dt_cities_stand)
+
+
+ggplot(data=tsne_df, aes(x=Coord1, y=Coord2)) + geom_point() + geom_label_repel(mapping = aes(label = city)) + labs(x="Coordenada 1",y="Coordenada 2") 
+
+#tsne_fitteste <- dt_cities_stand %>% Rtsne(perplexity=13)
+#tsne_dfteste <- tsne_fitteste$Y %>% as.data.frame() %>% rename(Coord1="V1", Coord2="V2")
+#tsne_dfteste$city <- rownames(dt_cities_stand)
+#ggplot(data=tsne_dfteste, aes(x=Coord1, y=Coord2)) + geom_point() + geom_label_repel(mapping = #aes(label = city)) + labs(x="Coordenada 1",y="Coordenada 2")
+```
+Vamos adicionar os grupos criados em 6.1.2 e observar se nossa análise via TSNE nos deu um resultado parecido com nossa análise via MDS. Vale lembrar que plot do MDS as distâncias euclidianas são preservadas por tanto não queremos comparar a distância entre os pontos, mas sim sua disposição quanto aos grupos formados.
+
+```{r}
+tsne_df$groups <- mds_s$groups
+
+ggplot(data=tsne_df, aes(x=Coord1, y=Coord2, col=groups)) + geom_point() + geom_label_repel(mapping = aes(label = city)) + labs(x="Coordenada 1",y="Coordenada 2")
+```
+Como podemos ver o TSNE manteve a disposição dos grupos e nos proporcionou uma visualização muito mais limpa, com menos dados amontoados.
+
+
+# Comparando com SO2
+
+Adicionando o nível de poluição de volta ao dataset, e analisando se nossos grupos nos dizem algo sobre o nível de S02. 
+
+```{r}
+tsne_df$SO2 <- dt_cities$SO2
+
+ggplot(data=tsne_df, aes(x=Coord1, y=Coord2, col=groups)) + geom_point() + geom_label_repel(mapping = aes(label = SO2)) + labs(x="Coordenada 1",y="Coordenada 2")
+```
+Aparentemente as cidades muito poluídas estão espalhadas entre os 3 grupos. Porém podemos perceber alguns aspectos interessantes, como: 
+
+1. Todas as cidades com maior grau de poluíção pertencem ao grupo 1 (vermelho). Apesar de termos algumas cidades com um grau bem baixo de poluição, como é o caso de Whicita a cidade menos poluida do nosso dataset. 
+2. Cidades com níveis intermediários de poluição parecem se concentrar no grupo 2 (verde).
+3. O grupo 3 (azul) parece manter um grau baixo de poluição, contendo apenas uma cidade com SO2 acima de 30.
+
+Por fim, vamos comparar como se comporta os níveis de poluição dentro de cada grupo.
+
+```{r}
+ggplot(tsne_df, aes(x=groups, y=SO2, col=groups)) + stat_boxplot() + stat_summary(fun=mean, geom="point", shape=8, size=5, color="red", fill="red")
+```
+Podemos perceber forte relação entre variabilidade do SO2 e o grupo ao qual as cidades pertencem. Podemos também ver que há uma redução acentuada na mediana e na média (*) entre cada grupo. Os limites inferiores e superiores (que representam o primeiro e terceiro quantil, respectivamente) também diminuem a cada grupo.
+
+# Conclusão
+
+Conseguimos fazer algumas análises bem interessantes no dataset. Com o PCA conseguimos diminuir nossas dimensões de 6 para 4 e ainda assim explicar mais de 90% da variabilidade de nossos dados. Com o MSD e TSNE conseguimos uma representação espacial interessante de nossos indivíduos e até mesmo enxergar uma relação com os níveis de SO2. 
+
+As análises poderiam ser melhores se disponibilizassemos de um dataset com mais observações, mais atual (acredito que hoje existam formas mais precisas de medir cada uma das variáveis) e se tivessemos um background melhor sobre o tema, assim poderiamos até mesmo incluir outras covariaveis. Obviamente a análise também será melhor conforme formos aprendendo novas técnicas na disciplina de Análise Multivariada.
+
